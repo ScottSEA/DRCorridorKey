@@ -44,9 +44,10 @@ setup_rocm_env()
 
 # ── Standard imports (safe now that env is configured) ───────────────────
 import logging
+import time as _time
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from .config import ServiceSettings, get_settings
@@ -99,6 +100,33 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     engine = EngineManager(settings)
     app.state.engine = engine
     app.state.settings = settings
+
+    # ── Global exception handler ─────────────────────────────────────
+    # Catches unhandled exceptions and returns a structured JSON error
+    # instead of a raw 500 page.  This is critical for the Fuse which
+    # parses the response JSON.
+    @app.exception_handler(Exception)
+    async def _unhandled_exception(request: Request, exc: Exception):
+        logger.error("Unhandled error on %s: %s", request.url.path, exc, exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal server error: {type(exc).__name__}: {exc}"},
+        )
+
+    # ── Request logging middleware ────────────────────────────────────
+    # Logs every request with timing — useful for diagnosing latency
+    # issues between the Fuse and the service.
+    @app.middleware("http")
+    async def _log_requests(request: Request, call_next):
+        t0 = _time.monotonic()
+        response = await call_next(request)
+        elapsed = _time.monotonic() - t0
+        logger.info(
+            "%s %s → %d (%.3fs)",
+            request.method, request.url.path,
+            response.status_code, elapsed,
+        )
+        return response
 
     # ── Startup event ────────────────────────────────────────────────
     @app.on_event("startup")
