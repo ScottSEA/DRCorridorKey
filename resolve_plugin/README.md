@@ -90,6 +90,8 @@ CK_PORT=8080 CK_DEVICE=cuda CK_PRELOAD_MODEL=true uv run python -m resolve_plugi
 | Despeckle Size | 400 | Minimum pixel count to keep an alpha island |
 | Refiner Scale | 1.0 | Neural network refiner intensity |
 | Input Is Linear | ✓ | Check if your plate is in linear colour space (typical for EXR) |
+| **Warmup Model** | *(button)* | Pre-load the model into GPU memory (avoids slow first frame) |
+| **Check Service** | *(button)* | Test connectivity and report model state in the console |
 
 ## Output Files
 
@@ -116,6 +118,8 @@ The service exposes these HTTP endpoints:
 | `/health` | GET | Service status, model state, GPU info |
 | `/warmup` | POST | Pre-load the model (avoids slow first frame) |
 | `/infer` | POST | Process a single frame (JSON body with file paths) |
+| `/infer-batch` | POST | Process multiple frames in one call (shared params) |
+| `/cleanup` | POST | Remove old temp directories (default: older than 24h) |
 | `/shutdown` | POST | Gracefully stop the service |
 | `/docs` | GET | Interactive OpenAPI documentation (auto-generated) |
 
@@ -150,3 +154,5 @@ Same as the main CorridorKey project:
 - The Fuse uses **PPM/PGM** as an interchange format — trivially parseable in Lua 5.1 without external libraries.
 - Results are **cached per frame + parameters** to avoid redundant re-processing.
 - Full-precision **EXR outputs** are always written alongside the 8-bit Fuse previews.
+- **Batch endpoint** (`/infer-batch`) processes frame sequences efficiently.
+- **Temp cleanup** runs at startup and can be triggered via `/cleanup`.
