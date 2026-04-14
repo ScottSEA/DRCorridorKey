@@ -514,6 +514,69 @@ function Create()
         INP_Default        = 1,   -- default True for EXR/Fusion workflows
         ICS_ControlPage    = "Controls",
     })
+
+    -- ── Service actions ─────────────────────────────────────────────
+    -- These buttons let the user manually interact with the service
+    -- without processing a frame.
+
+    InWarmup = self:AddInput("Warmup Model", "WarmupModel", {
+        LINKID_DataType    = "Number",
+        INPID_InputControl = "ButtonControl",
+        INP_DoNotifyChanged = true,  -- triggers NotifyChanged()
+        INP_External       = false,  -- not keyframeable
+        ICS_ControlPage    = "Controls",
+    })
+
+    InCheckHealth = self:AddInput("Check Service", "CheckService", {
+        LINKID_DataType    = "Number",
+        INPID_InputControl = "ButtonControl",
+        INP_DoNotifyChanged = true,
+        INP_External       = false,
+        ICS_ControlPage    = "Controls",
+    })
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Button handlers
+-- ═══════════════════════════════════════════════════════════════════════
+
+function NotifyChanged(inp, param, time)
+    -- Called when a button with INP_DoNotifyChanged is pressed.
+    -- We use this to trigger warmup and health check without
+    -- requiring a Process() cook cycle.
+
+    if inp == InWarmup then
+        local service_url = InServiceURL:GetSource(time, nil)
+        if not service_url then
+            service_url = "http://localhost:5309"
+        else
+            service_url = service_url.Value or "http://localhost:5309"
+        end
+
+        print("[CorridorKey] Requesting model warmup...")
+        local resp, err = http_post_json(service_url .. "/warmup", "{}")
+        if resp then
+            print("[CorridorKey] Model is ready!")
+        else
+            print("[CorridorKey] Warmup failed: " .. (err or "unknown"))
+        end
+
+    elseif inp == InCheckHealth then
+        local service_url = InServiceURL:GetSource(time, nil)
+        if not service_url then
+            service_url = "http://localhost:5309"
+        else
+            service_url = service_url.Value or "http://localhost:5309"
+        end
+
+        local state, err = check_service_health(service_url)
+        if state then
+            print("[CorridorKey] Service OK — model state: " .. state)
+        else
+            print("[CorridorKey] Service unreachable: " .. (err or "unknown"))
+        end
+    end
 end
 
 
