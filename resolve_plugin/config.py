@@ -75,6 +75,13 @@ class ServiceSettings(BaseSettings):
     default_refiner_scale: float = Field(default=1.0, ge=0.0)
     default_input_is_linear: bool = True
 
+    # ── Cleanup ──────────────────────────────────────────────────────────
+    cleanup_max_age_hours: float = Field(
+        default=24.0,
+        ge=0.1,
+        description="Age in hours before temp request directories are purged.",
+    )
+
     # ── Pydantic configuration ───────────────────────────────────────────
     model_config = {
         "env_prefix": "CK_",          # e.g. CK_PORT=8080

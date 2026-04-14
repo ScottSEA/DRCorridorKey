@@ -142,7 +142,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         logger.info("Device: %s", settings.device)
 
         # Clean up stale request directories from previous sessions
-        purge_old_outputs(settings.temp_dir)
+        purge_old_outputs(settings.temp_dir, settings.cleanup_max_age_hours)
 
         if settings.preload_model:
             logger.info("Preloading model (preload_model=True)...")
