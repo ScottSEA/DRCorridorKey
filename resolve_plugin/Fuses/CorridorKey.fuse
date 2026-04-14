@@ -1,0 +1,600 @@
+--[[
+    CorridorKey.fuse — DaVinci Resolve Fusion node for AI green-screen keying.
+
+    This Fuse connects to a local CorridorKey HTTP service (Python/FastAPI)
+    to separate a green-screen plate into clean foreground + alpha.  The
+    neural network runs server-side; this node handles the Fusion UI,
+    image interchange, and result caching.
+
+    Architecture:
+        Fuse (Lua)  ──HTTP──>  CorridorKey Service (Python)
+          │                         │
+          ├─ writes input PPM       ├─ reads PPM, runs inference
+          ├─ calls POST /infer      ├─ writes FG PPM + Alpha PGM + EXR
+          ├─ reads output PPM/PGM   └─ returns file paths as JSON
+          └─ builds RGBA output
+
+    Requirements:
+        - CorridorKey service running (python -m resolve_plugin)
+        - curl available on PATH (used for HTTP calls from Lua)
+
+    Installation:
+        Copy this file to your Fusion Fuses directory:
+        Windows: %APPDATA%\Blackmagic Design\DaVinci Resolve\Support\Fusion\Fuses\
+        Mac:     ~/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion/Fuses/
+        Linux:   ~/.fusion/BlackmagicDesign/DaVinci Resolve/Fuses/
+]]
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Registration
+-- ═══════════════════════════════════════════════════════════════════════
+
+FuRegisterClass("CorridorKey", CT_Tool, {
+    REGS_Category       = "Fuses\\Keying",
+    REGS_OpIconString   = "CKey",
+    REGS_OpDescription  = "AI green-screen keyer — separates foreground + alpha via neural network",
+    REG_OpNoMask        = true,
+    REG_NoMotionBlurCtrls = true,
+})
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Helpers — PPM/PGM I/O (Portable PixMap / GrayMap)
+--
+-- These formats are dead-simple binary: a short ASCII header followed
+-- by raw pixel bytes.  Perfect for Lua 5.1 which has no struct.pack.
+-- ═══════════════════════════════════════════════════════════════════════
+
+--- Write a Fusion Image to a PPM P6 file (8-bit RGB).
+-- @param img   Fusion Image object
+-- @param path  Destination file path
+-- @return true on success, nil + error on failure
+local function write_image_as_ppm(img, path)
+    if not img then return nil, "no image" end
+
+    local w, h = img.Width, img.Height
+    local f, err = io.open(path, "wb")
+    if not f then return nil, "cannot open: " .. (err or path) end
+
+    -- PPM P6 header: magic, dimensions, max value
+    f:write("P6\n")
+    f:write(w .. " " .. h .. "\n")
+    f:write("255\n")
+
+    -- Pixel data — row-major, top-to-bottom, RGB bytes.
+    -- Fusion pixel values are float [0, 1]; we clamp and quantise.
+    for y = 0, h - 1 do
+        local row = {}
+        for x = 0, w - 1 do
+            -- GetPixel returns r, g, b, a as separate floats
+            local r, g, b = img:GetPixel(x, y)
+            row[#row + 1] = string.char(
+                math.floor(math.min(math.max(r, 0), 1) * 255 + 0.5),
+                math.floor(math.min(math.max(g, 0), 1) * 255 + 0.5),
+                math.floor(math.min(math.max(b, 0), 1) * 255 + 0.5)
+            )
+        end
+        f:write(table.concat(row))
+    end
+
+    f:close()
+    return true
+end
+
+
+--- Write a Fusion Image's luminance to a PGM P5 file (8-bit gray).
+-- Uses the first channel (R) as the mask value.
+-- @param img   Fusion Image object
+-- @param path  Destination file path
+-- @return true on success, nil + error on failure
+local function write_image_as_pgm(img, path)
+    if not img then return nil, "no image" end
+
+    local w, h = img.Width, img.Height
+    local f, err = io.open(path, "wb")
+    if not f then return nil, "cannot open: " .. (err or path) end
+
+    -- PGM P5 header
+    f:write("P5\n")
+    f:write(w .. " " .. h .. "\n")
+    f:write("255\n")
+
+    for y = 0, h - 1 do
+        local row = {}
+        for x = 0, w - 1 do
+            local r = img:GetPixel(x, y)  -- just take the first channel
+            row[#row + 1] = string.char(
+                math.floor(math.min(math.max(r, 0), 1) * 255 + 0.5)
+            )
+        end
+        f:write(table.concat(row))
+    end
+
+    f:close()
+    return true
+end
+
+
+--- Read a PPM P6 file into a Fusion Image (RGBA, 8-bit precision).
+-- @param path  Source PPM file path
+-- @return Fusion Image object, or nil + error
+local function read_ppm_as_image(path)
+    local f, err = io.open(path, "rb")
+    if not f then return nil, "cannot open: " .. (err or path) end
+
+    -- Parse header — skip comment lines (starting with #)
+    local magic = f:read("*line")
+    if magic ~= "P6" then
+        f:close()
+        return nil, "not a P6 PPM file: " .. (magic or "nil")
+    end
+
+    -- Read dimensions, skipping any comment lines
+    local line
+    repeat line = f:read("*line") until not line or line:sub(1, 1) ~= "#"
+    if not line then f:close(); return nil, "unexpected end of PPM header" end
+    local w, h = line:match("(%d+)%s+(%d+)")
+    w, h = tonumber(w), tonumber(h)
+    if not w or not h then f:close(); return nil, "bad PPM dimensions" end
+
+    -- Read max value line
+    repeat line = f:read("*line") until not line or line:sub(1, 1) ~= "#"
+
+    -- Read pixel data — remaining bytes are w * h * 3
+    local data = f:read("*all")
+    f:close()
+
+    if not data or #data < w * h * 3 then
+        return nil, "PPM data too short"
+    end
+
+    -- Build Fusion Image
+    local img = Image({IMG_Width = w, IMG_Height = h, IMG_Depth = 8})
+
+    local idx = 1
+    for y = 0, h - 1 do
+        for x = 0, w - 1 do
+            local r = data:byte(idx) / 255.0
+            local g = data:byte(idx + 1) / 255.0
+            local b = data:byte(idx + 2) / 255.0
+            img:SetPixel(x, y, r, g, b, 1.0)
+            idx = idx + 3
+        end
+    end
+
+    return img
+end
+
+
+--- Read a PGM P5 file as a single-channel mask (returned as grayscale RGBA).
+-- @param path  Source PGM file path
+-- @return Fusion Image object, or nil + error
+local function read_pgm_as_image(path)
+    local f, err = io.open(path, "rb")
+    if not f then return nil, "cannot open: " .. (err or path) end
+
+    local magic = f:read("*line")
+    if magic ~= "P5" then
+        f:close()
+        return nil, "not a P5 PGM file: " .. (magic or "nil")
+    end
+
+    local line
+    repeat line = f:read("*line") until not line or line:sub(1, 1) ~= "#"
+    if not line then f:close(); return nil, "unexpected end of PGM header" end
+    local w, h = line:match("(%d+)%s+(%d+)")
+    w, h = tonumber(w), tonumber(h)
+    if not w or not h then f:close(); return nil, "bad PGM dimensions" end
+
+    repeat line = f:read("*line") until not line or line:sub(1, 1) ~= "#"
+
+    local data = f:read("*all")
+    f:close()
+
+    if not data or #data < w * h then
+        return nil, "PGM data too short"
+    end
+
+    local img = Image({IMG_Width = w, IMG_Height = h, IMG_Depth = 8})
+
+    local idx = 1
+    for y = 0, h - 1 do
+        for x = 0, w - 1 do
+            local v = data:byte(idx) / 255.0
+            -- Store mask value in all channels so it's visible
+            img:SetPixel(x, y, v, v, v, v)
+            idx = idx + 1
+        end
+    end
+
+    return img
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Helpers — HTTP via curl
+-- ═══════════════════════════════════════════════════════════════════════
+
+--- Escape a string for safe embedding in a shell command.
+-- Wraps in double quotes and escapes internal special characters.
+-- @param s  Raw string
+-- @return   Shell-safe quoted string
+local function shell_quote(s)
+    -- On Windows, wrap in double quotes and escape internal double quotes
+    -- and percent signs.  On POSIX, single quotes would be safer but
+    -- curl JSON payloads often contain single quotes, so double quotes
+    -- are simpler here.
+    s = s:gsub('\\', '\\\\')
+    s = s:gsub('"', '\\"')
+    s = s:gsub('%%', '%%%%')
+    return '"' .. s .. '"'
+end
+
+
+--- Build a minimal JSON object from key-value pairs.
+-- Values must be Lua primitives (string, number, boolean, nil).
+-- Nil values are omitted.  No nested objects.
+-- @param t  Table of key-value pairs
+-- @return   JSON string
+local function build_json(t)
+    local parts = {}
+    for k, v in pairs(t) do
+        if v ~= nil then
+            local json_val
+            if type(v) == "string" then
+                -- Escape backslashes and quotes inside string values
+                local escaped = v:gsub('\\', '\\\\'):gsub('"', '\\"')
+                json_val = '"' .. escaped .. '"'
+            elseif type(v) == "boolean" then
+                json_val = v and "true" or "false"
+            else
+                json_val = tostring(v)
+            end
+            parts[#parts + 1] = '"' .. k .. '":' .. json_val
+        end
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
+
+--- Parse a JSON string into a Lua table (minimal parser).
+-- Handles flat objects with string, number, boolean, and null values.
+-- This is intentionally simple — we only need to parse the service's
+-- well-known response format, not arbitrary JSON.
+-- @param s  JSON string
+-- @return   Table of key-value pairs, or nil + error
+local function parse_json(s)
+    if not s or s == "" then return nil, "empty response" end
+
+    local result = {}
+    -- Match "key": "value" or "key": number or "key": true/false/null
+    for k, v in s:gmatch('"([^"]+)"%s*:%s*(".-[^\\]"|%-?%d+%.?%d*|true|false|null)') do
+        if v == "null" then
+            result[k] = nil
+        elseif v == "true" then
+            result[k] = true
+        elseif v == "false" then
+            result[k] = false
+        elseif v:sub(1, 1) == '"' then
+            -- Strip quotes and unescape
+            result[k] = v:sub(2, -2):gsub('\\"', '"'):gsub('\\\\', '\\')
+        else
+            result[k] = tonumber(v)
+        end
+    end
+
+    -- Check for error responses
+    if result.detail then
+        return nil, result.detail
+    end
+
+    return result
+end
+
+
+--- POST JSON to a URL via curl and return the parsed response.
+-- @param url       Full URL (e.g. "http://localhost:5309/infer")
+-- @param json_body JSON string to send
+-- @return          Parsed response table, or nil + error string
+local function http_post_json(url, json_body)
+    -- Build curl command:
+    --   -s          silent (no progress bar)
+    --   -S          show errors
+    --   -m 300      timeout 5 minutes (inference can be slow)
+    --   -H          content type header
+    --   -d          request body
+    local cmd = 'curl -s -S -m 300'
+        .. ' -H "Content-Type: application/json"'
+        .. ' -d ' .. shell_quote(json_body)
+        .. ' ' .. shell_quote(url)
+
+    local pipe = io.popen(cmd, "r")
+    if not pipe then
+        return nil, "failed to run curl — is it installed?"
+    end
+
+    local response = pipe:read("*all")
+    pipe:close()
+
+    return parse_json(response)
+end
+
+
+--- GET a URL via curl and return the parsed JSON response.
+-- @param url  Full URL
+-- @return     Parsed response table, or nil + error string
+local function http_get_json(url)
+    local cmd = 'curl -s -S -m 10 ' .. shell_quote(url)
+    local pipe = io.popen(cmd, "r")
+    if not pipe then
+        return nil, "failed to run curl"
+    end
+    local response = pipe:read("*all")
+    pipe:close()
+    return parse_json(response)
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Helpers — Temp file management
+-- ═══════════════════════════════════════════════════════════════════════
+
+--- Get the OS temp directory.
+-- @return  Path string
+local function get_temp_dir()
+    return os.getenv("TEMP") or os.getenv("TMPDIR") or os.getenv("TMP") or "/tmp"
+end
+
+
+--- Build a unique temp file path for a given frame.
+-- @param prefix  Filename prefix (e.g. "ck_input")
+-- @param ext     File extension (e.g. "ppm")
+-- @param frame   Frame number (for uniqueness)
+-- @return        Full temp file path
+local function temp_path(prefix, ext, frame)
+    local dir = get_temp_dir() .. "/corridorkey_fuse"
+    -- Ensure the directory exists (os.execute returns different values
+    -- on Windows vs POSIX, but mkdir -p / mkdir are both safe to call
+    -- even if the dir already exists)
+    os.execute('mkdir "' .. dir .. '" 2>nul || mkdir -p "' .. dir .. '" 2>/dev/null')
+    return dir .. "/" .. prefix .. "_" .. tostring(frame) .. "." .. ext
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Helpers — Result caching
+--
+-- We cache the last result so that repeated Process() calls (scrubbing,
+-- viewer refresh, cache invalidation) don't re-trigger inference.
+-- Cache is invalidated when the frame number or parameters change.
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- Module-level cache (persists across Process() calls within a session)
+local _cache = {
+    key = nil,       -- string hash of frame + params
+    fg_img = nil,    -- cached Fusion Image (foreground)
+    alpha_img = nil, -- cached Fusion Image (alpha)
+}
+
+
+--- Build a cache key from the current frame and parameters.
+-- @param req          Fusion request object
+-- @param params_str   String representation of all inference parameters
+-- @return             Cache key string
+local function cache_key(req, params_str)
+    return tostring(req.Time) .. "|" .. params_str
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Fuse definition
+-- ═══════════════════════════════════════════════════════════════════════
+
+function Create()
+    -- ── Image inputs ────────────────────────────────────────────────
+    InImage = self:AddInput("Green Screen Plate", "Image", {
+        LINKID_DataType = "Image",
+        LINK_Main       = 1,  -- primary input (required)
+    })
+
+    InAlphaHint = self:AddInput("Alpha Hint", "AlphaHint", {
+        LINKID_DataType = "Image",
+        LINK_Main       = 2,  -- secondary input (required)
+    })
+
+    -- ── Image output ────────────────────────────────────────────────
+    OutImage = self:AddOutput("Output", "Output", {
+        LINKID_DataType = "Image",
+        LINK_Main       = 1,
+    })
+
+    -- ── Service connection ──────────────────────────────────────────
+    InServiceURL = self:AddInput("Service URL", "ServiceURL", {
+        LINKID_DataType    = "Text",
+        INPID_InputControl = "TextEditControl",
+        INP_Default        = "http://localhost:5309",
+        ICS_ControlPage    = "Controls",
+    })
+
+    -- ── Inference parameters ────────────────────────────────────────
+    InDespillStrength = self:AddInput("Despill Strength", "DespillStrength", {
+        LINKID_DataType    = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_Default        = 1.0,
+        INP_MinScale       = 0.0,
+        INP_MaxScale       = 1.0,
+        ICS_ControlPage    = "Controls",
+    })
+
+    InAutoDespeckle = self:AddInput("Auto Despeckle", "AutoDespeckle", {
+        LINKID_DataType    = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Default        = 1,   -- 1 = checked
+        ICS_ControlPage    = "Controls",
+    })
+
+    InDespeckleSize = self:AddInput("Despeckle Size", "DespeckleSize", {
+        LINKID_DataType    = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_Default        = 400,
+        INP_MinScale       = 0,
+        INP_MaxScale       = 2000,
+        INP_Integer        = true,
+        ICS_ControlPage    = "Controls",
+    })
+
+    InRefinerScale = self:AddInput("Refiner Scale", "RefinerScale", {
+        LINKID_DataType    = "Number",
+        INPID_InputControl = "SliderControl",
+        INP_Default        = 1.0,
+        INP_MinScale       = 0.0,
+        INP_MaxScale       = 2.0,
+        ICS_ControlPage    = "Controls",
+    })
+
+    InInputIsLinear = self:AddInput("Input Is Linear", "InputIsLinear", {
+        LINKID_DataType    = "Number",
+        INPID_InputControl = "CheckboxControl",
+        INP_Default        = 1,   -- default True for EXR/Fusion workflows
+        ICS_ControlPage    = "Controls",
+    })
+end
+
+
+function Process(req)
+    -- ── 1. Get inputs ───────────────────────────────────────────────
+    local img = InImage:GetValue(req)
+    local alpha_hint = InAlphaHint:GetValue(req)
+
+    -- Both inputs are required — CorridorKey needs a plate and a mask
+    if not img then
+        print("[CorridorKey] Error: no green screen plate connected")
+        return
+    end
+    if not alpha_hint then
+        print("[CorridorKey] Error: no alpha hint connected — "
+            .. "CorridorKey requires a rough matte (BiRefNet, roto, etc.)")
+        return
+    end
+
+    -- ── 2. Read parameters ──────────────────────────────────────────
+    local service_url  = InServiceURL:GetValue(req).Value or "http://localhost:5309"
+    local despill      = InDespillStrength:GetValue(req).Value
+    local auto_ds      = InAutoDespeckle:GetValue(req).Value > 0.5
+    local ds_size      = math.floor(InDespeckleSize:GetValue(req).Value)
+    local refiner      = InRefinerScale:GetValue(req).Value
+    local is_linear    = InInputIsLinear:GetValue(req).Value > 0.5
+
+    -- Build a string key for caching: frame number + all parameters
+    local params_str = string.format(
+        "%.3f|%s|%d|%.3f|%s",
+        despill,
+        tostring(auto_ds),
+        ds_size,
+        refiner,
+        tostring(is_linear)
+    )
+    local key = cache_key(req, params_str)
+
+    -- ── 3. Check cache ──────────────────────────────────────────────
+    if _cache.key == key and _cache.fg_img and _cache.alpha_img then
+        -- Combine cached FG + alpha into RGBA output
+        local out = _cache.fg_img:CopyOf()
+        local w, h = out.Width, out.Height
+        for y = 0, h - 1 do
+            for x = 0, w - 1 do
+                local r, g, b = _cache.fg_img:GetPixel(x, y)
+                local a = _cache.alpha_img:GetPixel(x, y)  -- first channel
+                out:SetPixel(x, y, r, g, b, a)
+            end
+        end
+        OutImage:Set(req, out)
+        return
+    end
+
+    -- ── 4. Write inputs to temp files ───────────────────────────────
+    local frame = req.Time
+    local input_path = temp_path("ck_input", "ppm", frame)
+    local hint_path  = temp_path("ck_hint", "pgm", frame)
+
+    local ok, write_err = write_image_as_ppm(img, input_path)
+    if not ok then
+        print("[CorridorKey] Error writing input: " .. (write_err or "unknown"))
+        return
+    end
+
+    ok, write_err = write_image_as_pgm(alpha_hint, hint_path)
+    if not ok then
+        print("[CorridorKey] Error writing alpha hint: " .. (write_err or "unknown"))
+        return
+    end
+
+    -- ── 5. Call the service ─────────────────────────────────────────
+    local body = build_json({
+        image_path       = input_path,
+        alpha_hint_path  = hint_path,
+        despill_strength = despill,
+        auto_despeckle   = auto_ds,
+        despeckle_size   = ds_size,
+        refiner_scale    = refiner,
+        input_is_linear  = is_linear,
+    })
+
+    local infer_url = service_url .. "/infer"
+    print("[CorridorKey] Processing frame " .. tostring(frame) .. "...")
+
+    local resp, http_err = http_post_json(infer_url, body)
+    if not resp then
+        print("[CorridorKey] Service error: " .. (http_err or "unknown"))
+        print("[CorridorKey] Is the service running? Start with: "
+            .. "python -m resolve_plugin")
+        return
+    end
+
+    -- ── 6. Read results ─────────────────────────────────────────────
+    local fg_ppm_path  = resp.fg_ppm_path
+    local alpha_pgm_path = resp.alpha_pgm_path
+
+    if not fg_ppm_path or not alpha_pgm_path then
+        print("[CorridorKey] Service returned incomplete response")
+        return
+    end
+
+    local fg_img, fg_err = read_ppm_as_image(fg_ppm_path)
+    if not fg_img then
+        print("[CorridorKey] Error reading FG result: " .. (fg_err or "unknown"))
+        return
+    end
+
+    local alpha_img, alpha_err = read_pgm_as_image(alpha_pgm_path)
+    if not alpha_img then
+        print("[CorridorKey] Error reading alpha result: " .. (alpha_err or "unknown"))
+        return
+    end
+
+    -- ── 7. Cache the result ─────────────────────────────────────────
+    _cache.key       = key
+    _cache.fg_img    = fg_img
+    _cache.alpha_img = alpha_img
+
+    -- ── 8. Combine FG + Alpha into RGBA output ─────────────────────
+    local w, h = fg_img.Width, fg_img.Height
+    local out = fg_img:CopyOf()
+
+    for y = 0, h - 1 do
+        for x = 0, w - 1 do
+            local r, g, b = fg_img:GetPixel(x, y)
+            local a = alpha_img:GetPixel(x, y)  -- first channel = alpha
+            out:SetPixel(x, y, r, g, b, a)
+        end
+    end
+
+    OutImage:Set(req, out)
+    print("[CorridorKey] Frame " .. tostring(frame) .. " complete")
+
+    -- ── 9. Clean up temp input files ────────────────────────────────
+    -- Output files are left for the service's garbage collector.
+    -- Input files are ours to clean up.
+    os.remove(input_path)
+    os.remove(hint_path)
+end
