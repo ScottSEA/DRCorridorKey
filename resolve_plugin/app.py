@@ -58,6 +58,7 @@ from .models import (
     InferResponse,
     ModelState,
 )
+from .cleanup import purge_old_outputs
 from .output_writer import write_inference_outputs
 from .path_security import validate_input_path, validate_output_dir
 
@@ -111,6 +112,9 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         os.makedirs(settings.temp_dir, exist_ok=True)
         logger.info("Temp directory: %s", settings.temp_dir)
         logger.info("Device: %s", settings.device)
+
+        # Clean up stale request directories from previous sessions
+        purge_old_outputs(settings.temp_dir)
 
         if settings.preload_model:
             logger.info("Preloading model (preload_model=True)...")
@@ -287,6 +291,20 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
 
         threading.Timer(0.5, lambda: os._exit(0)).start()
         return {"status": "shutting_down"}
+
+    @app.post(
+        "/cleanup",
+        summary="Clean up old temp files",
+        description=(
+            "Removes request output directories older than the specified "
+            "age (default: 24 hours).  Runs automatically at startup; "
+            "this endpoint allows manual triggering."
+        ),
+    )
+    def cleanup(max_age_hours: float = 24.0) -> dict:
+        """Purge stale request directories from the temp directory."""
+        removed = purge_old_outputs(settings.temp_dir, max_age_hours)
+        return {"removed": removed, "temp_dir": settings.temp_dir}
 
     return app
 
