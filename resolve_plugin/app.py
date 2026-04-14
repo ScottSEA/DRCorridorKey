@@ -53,6 +53,9 @@ from fastapi.responses import JSONResponse
 from .config import ServiceSettings, get_settings
 from .engine_manager import EngineManager
 from .models import (
+    BatchFrameResult,
+    BatchInferRequest,
+    BatchInferResponse,
     ErrorResponse,
     HealthResponse,
     InferRequest,
@@ -296,6 +299,97 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             fg_ppm_path=paths["fg_ppm_path"],
             alpha_pgm_path=paths["alpha_pgm_path"],
             comp_path=paths.get("comp_path"),
+        )
+
+    @app.post(
+        "/infer-batch",
+        response_model=BatchInferResponse,
+        summary="Process multiple frames in one call",
+        description=(
+            "Processes a list of frame pairs sequentially using shared "
+            "inference parameters.  Avoids per-frame HTTP round-trip "
+            "overhead when processing a sequence.  Failures on individual "
+            "frames do not abort the batch."
+        ),
+        responses={
+            400: {"model": ErrorResponse, "description": "Invalid parameters"},
+            500: {"model": ErrorResponse, "description": "Service-level failure"},
+        },
+    )
+    def infer_batch(req: BatchInferRequest) -> BatchInferResponse:
+        """Process a batch of frames sequentially.
+
+        Each frame is processed independently — a failure on one frame
+        is recorded in the results but does not stop the batch.  This
+        matches the behaviour artists expect when processing a sequence
+        with a few problematic frames.
+        """
+        # ── Resolve shared parameters ────────────────────────────────
+        despill = req.despill_strength if req.despill_strength is not None else settings.default_despill_strength
+        auto_ds = req.auto_despeckle if req.auto_despeckle is not None else settings.default_auto_despeckle
+        ds_size = req.despeckle_size if req.despeckle_size is not None else settings.default_despeckle_size
+        refiner = req.refiner_scale if req.refiner_scale is not None else settings.default_refiner_scale
+        is_linear = req.input_is_linear if req.input_is_linear is not None else settings.default_input_is_linear
+
+        # ── Resolve output directory ─────────────────────────────────
+        if req.output_dir:
+            try:
+                batch_dir = validate_output_dir(req.output_dir, settings)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+        else:
+            batch_dir = os.path.join(settings.temp_dir, uuid.uuid4().hex[:12])
+            os.makedirs(batch_dir, exist_ok=True)
+
+        # ── Process each frame ───────────────────────────────────────
+        results: list[BatchFrameResult] = []
+        succeeded = 0
+
+        for i, frame in enumerate(req.frames):
+            # Per-frame output subdirectory
+            frame_dir = os.path.join(batch_dir, f"{i:05d}")
+            os.makedirs(frame_dir, exist_ok=True)
+
+            try:
+                image_path = validate_input_path(frame.image_path, settings)
+                alpha_path = validate_input_path(frame.alpha_hint_path, settings)
+
+                result = engine.infer_single_frame(
+                    image_path=image_path,
+                    alpha_hint_path=alpha_path,
+                    despill_strength=despill,
+                    auto_despeckle=auto_ds,
+                    despeckle_size=ds_size,
+                    refiner_scale=refiner,
+                    input_is_linear=is_linear,
+                )
+                paths = write_inference_outputs(result, frame_dir, settings)
+
+                results.append(BatchFrameResult(
+                    index=i,
+                    success=True,
+                    fg_path=paths["fg_path"],
+                    alpha_path=paths["alpha_path"],
+                    fg_ppm_path=paths["fg_ppm_path"],
+                    alpha_pgm_path=paths["alpha_pgm_path"],
+                    comp_path=paths.get("comp_path"),
+                ))
+                succeeded += 1
+                logger.info("Batch frame %d/%d complete", i + 1, len(req.frames))
+
+            except Exception as exc:
+                logger.warning("Batch frame %d failed: %s", i, exc)
+                results.append(BatchFrameResult(
+                    index=i,
+                    success=False,
+                    error=str(exc),
+                ))
+
+        return BatchInferResponse(
+            total=len(req.frames),
+            succeeded=succeeded,
+            failed=len(req.frames) - succeeded,
+            results=results,
         )
 
     @app.post(

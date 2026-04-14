@@ -152,3 +152,64 @@ class ErrorResponse(BaseModel):
         ...,
         description="Human-readable error description.",
     )
+
+
+# ── Batch Inference ─────────────────────────────────────────────────────
+
+
+class BatchFrameInput(BaseModel):
+    """A single frame within a batch inference request."""
+
+    image_path: str = Field(
+        ...,
+        description="Absolute path to the green-screen frame.",
+    )
+    alpha_hint_path: str = Field(
+        ...,
+        description="Absolute path to the alpha-hint / rough matte.",
+    )
+
+
+class BatchInferRequest(BaseModel):
+    """POST /infer-batch — process multiple frames in one HTTP call.
+
+    Shares inference parameters across all frames in the batch.
+    This avoids per-frame HTTP round-trip overhead when processing
+    a sequence.
+    """
+
+    frames: list[BatchFrameInput] = Field(
+        ...,
+        min_length=1,
+        description="List of frame input pairs to process.",
+    )
+
+    # ── Shared inference parameters ──────────────────────────────────
+    despill_strength: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    auto_despeckle: Optional[bool] = Field(default=None)
+    despeckle_size: Optional[int] = Field(default=None, ge=0)
+    refiner_scale: Optional[float] = Field(default=None, ge=0.0)
+    input_is_linear: Optional[bool] = Field(default=None)
+    output_dir: Optional[str] = Field(default=None)
+
+
+class BatchFrameResult(BaseModel):
+    """Result for a single frame within a batch response."""
+
+    index: int = Field(..., description="Zero-based index in the input list.")
+    success: bool = Field(..., description="Whether this frame was processed successfully.")
+    fg_path: Optional[str] = Field(default=None)
+    alpha_path: Optional[str] = Field(default=None)
+    fg_ppm_path: Optional[str] = Field(default=None)
+    alpha_pgm_path: Optional[str] = Field(default=None)
+    comp_path: Optional[str] = Field(default=None)
+    error: Optional[str] = Field(default=None, description="Error message if success is False.")
+
+
+class BatchInferResponse(BaseModel):
+    """POST /infer-batch — response body."""
+
+    total: int = Field(..., description="Total frames in the request.")
+    succeeded: int = Field(..., description="Number of frames processed successfully.")
+    failed: int = Field(..., description="Number of frames that failed.")
+    results: list[BatchFrameResult] = Field(..., description="Per-frame results.")
