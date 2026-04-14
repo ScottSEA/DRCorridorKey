@@ -78,6 +78,9 @@ class InferResponse(BaseModel):
     """POST /infer — response body.
 
     Returns paths to the output files so the Fuse can read them back.
+    Full-precision EXR files are always written for final compositing.
+    PPM/PGM files (8-bit) are also written for easy parsing in the
+    Lua-based Fusion Fuse.
     """
 
     fg_path: str = Field(
@@ -87,6 +90,14 @@ class InferResponse(BaseModel):
     alpha_path: str = Field(
         ...,
         description="Path to the alpha matte EXR (single-channel).",
+    )
+    fg_ppm_path: str = Field(
+        ...,
+        description="Path to the foreground PPM (8-bit RGB, for the Fuse).",
+    )
+    alpha_pgm_path: str = Field(
+        ...,
+        description="Path to the alpha PGM (8-bit grayscale, for the Fuse).",
     )
     comp_path: Optional[str] = Field(
         default=None,

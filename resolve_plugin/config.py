@@ -73,7 +73,7 @@ class ServiceSettings(BaseSettings):
     default_auto_despeckle: bool = True
     default_despeckle_size: int = Field(default=400, ge=0)
     default_refiner_scale: float = Field(default=1.0, ge=0.0)
-    default_input_is_linear: bool = False
+    default_input_is_linear: bool = True
 
     # ── Pydantic configuration ───────────────────────────────────────────
     model_config = {

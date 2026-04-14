@@ -261,6 +261,8 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         return InferResponse(
             fg_path=paths["fg_path"],
             alpha_path=paths["alpha_path"],
+            fg_ppm_path=paths["fg_ppm_path"],
+            alpha_pgm_path=paths["alpha_pgm_path"],
             comp_path=paths.get("comp_path"),
         )
 
