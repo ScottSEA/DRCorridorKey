@@ -336,6 +336,62 @@ end
 
 
 -- ═══════════════════════════════════════════════════════════════════════
+-- Helpers — Service connectivity
+-- ═══════════════════════════════════════════════════════════════════════
+
+--- Check if the CorridorKey service is reachable and report its state.
+-- @param service_url  Base URL of the service
+-- @return model_state string ("ready", "cold", "loading", etc.) or nil
+-- @return error string if unreachable
+local function check_service_health(service_url)
+    local resp, err = http_get_json(service_url .. "/health")
+    if not resp then
+        return nil, err or "service unreachable"
+    end
+    return resp.model_state, nil
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Helpers — Timing
+-- ═══════════════════════════════════════════════════════════════════════
+
+--- Simple stopwatch using os.clock() (CPU time, but close enough for
+-- user-facing feedback in a single-threaded Lua environment).
+local function now()
+    return os.clock()
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Helpers — RGBA compositing
+--
+-- Extracted from Process() to keep the main function focused on
+-- orchestration (SRP).  Builds a single RGBA Fusion Image from
+-- separate foreground and alpha images.
+-- ═══════════════════════════════════════════════════════════════════════
+
+--- Combine foreground RGB + alpha into a single RGBA Fusion Image.
+-- @param fg_img     Fusion Image with RGB foreground
+-- @param alpha_img  Fusion Image with alpha in first channel
+-- @return           New Fusion Image with RGBA
+local function compose_rgba(fg_img, alpha_img)
+    local w, h = fg_img.Width, fg_img.Height
+    local out = fg_img:CopyOf()
+
+    for y = 0, h - 1 do
+        for x = 0, w - 1 do
+            local r, g, b = fg_img:GetPixel(x, y)
+            local a = alpha_img:GetPixel(x, y)
+            out:SetPixel(x, y, r, g, b, a)
+        end
+    end
+
+    return out
+end
+
+
+-- ═══════════════════════════════════════════════════════════════════════
 -- Helpers — Temp file management
 -- ═══════════════════════════════════════════════════════════════════════
 
@@ -498,21 +554,29 @@ function Process(req)
 
     -- ── 3. Check cache ──────────────────────────────────────────────
     if _cache.key == key and _cache.fg_img and _cache.alpha_img then
-        -- Combine cached FG + alpha into RGBA output
-        local out = _cache.fg_img:CopyOf()
-        local w, h = out.Width, out.Height
-        for y = 0, h - 1 do
-            for x = 0, w - 1 do
-                local r, g, b = _cache.fg_img:GetPixel(x, y)
-                local a = _cache.alpha_img:GetPixel(x, y)  -- first channel
-                out:SetPixel(x, y, r, g, b, a)
-            end
-        end
-        OutImage:Set(req, out)
+        -- Reuse cached result — no inference needed
+        OutImage:Set(req, compose_rgba(_cache.fg_img, _cache.alpha_img))
         return
     end
 
-    -- ── 4. Write inputs to temp files ───────────────────────────────
+    -- ── 4. Health check — verify the service is reachable ───────────
+    local model_state, health_err = check_service_health(service_url)
+    if not model_state then
+        print("[CorridorKey] Service unreachable: " .. (health_err or "unknown"))
+        print("[CorridorKey] Start the service with: python -m resolve_plugin")
+        return
+    end
+    if model_state == "loading" then
+        print("[CorridorKey] Model is loading — please wait...")
+        return
+    end
+    if model_state == "failed" then
+        print("[CorridorKey] Model failed to load — check service logs")
+        return
+    end
+
+    -- ── 5. Write inputs to temp files ───────────────────────────────
+    local t_start = now()
     local frame = req.Time
     local input_path = temp_path("ck_input", "ppm", frame)
     local hint_path  = temp_path("ck_hint", "pgm", frame)
@@ -529,7 +593,7 @@ function Process(req)
         return
     end
 
-    -- ── 5. Call the service ─────────────────────────────────────────
+    -- ── 6. Call the service ─────────────────────────────────────────
     local body = build_json({
         image_path       = input_path,
         alpha_hint_path  = hint_path,
@@ -542,6 +606,7 @@ function Process(req)
 
     local infer_url = service_url .. "/infer"
     print("[CorridorKey] Processing frame " .. tostring(frame) .. "...")
+    local t_infer = now()
 
     local resp, http_err = http_post_json(infer_url, body)
     if not resp then
@@ -551,7 +616,7 @@ function Process(req)
         return
     end
 
-    -- ── 6. Read results ─────────────────────────────────────────────
+    -- ── 7. Read results ─────────────────────────────────────────────
     local fg_ppm_path  = resp.fg_ppm_path
     local alpha_pgm_path = resp.alpha_pgm_path
 
@@ -572,27 +637,22 @@ function Process(req)
         return
     end
 
-    -- ── 7. Cache the result ─────────────────────────────────────────
+    -- ── 8. Cache the result ─────────────────────────────────────────
     _cache.key       = key
     _cache.fg_img    = fg_img
     _cache.alpha_img = alpha_img
 
-    -- ── 8. Combine FG + Alpha into RGBA output ─────────────────────
-    local w, h = fg_img.Width, fg_img.Height
-    local out = fg_img:CopyOf()
+    -- ── 9. Combine FG + Alpha into RGBA output ─────────────────────
+    OutImage:Set(req, compose_rgba(fg_img, alpha_img))
 
-    for y = 0, h - 1 do
-        for x = 0, w - 1 do
-            local r, g, b = fg_img:GetPixel(x, y)
-            local a = alpha_img:GetPixel(x, y)  -- first channel = alpha
-            out:SetPixel(x, y, r, g, b, a)
-        end
-    end
+    local t_total = now() - t_start
+    local t_inf   = now() - t_infer
+    print(string.format(
+        "[CorridorKey] Frame %d complete — %.1fs total (%.1fs inference)",
+        frame, t_total, t_inf
+    ))
 
-    OutImage:Set(req, out)
-    print("[CorridorKey] Frame " .. tostring(frame) .. " complete")
-
-    -- ── 9. Clean up temp input files ────────────────────────────────
+    -- ── 10. Clean up temp input files ───────────────────────────────
     -- Output files are left for the service's garbage collector.
     -- Input files are ours to clean up.
     os.remove(input_path)
