@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "feature/**"]
   pull_request:
     branches: [main]
 
@@ -58,3 +58,38 @@ jobs:
 
       - name: Run tests
         run: uv run pytest -v --tb=short -m "not gpu"
+
+  ofx-reference:
+    name: OFX Reference Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install pytest numpy opencv-python-headless pydantic pydantic-settings
+          uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Run OFX reference tests
+        run: uv run python -m pytest ofx_plugin/tests/ -v --tb=short
+
+      - name: Verify test count
+        run: |
+          # Fail if fewer than 100 tests ran (guard against silent collection errors)
+          count=$(uv run python -m pytest ofx_plugin/tests/ -q --no-header 2>&1 | grep -oP '^\d+(?= passed)')
+          echo "Tests passed: $count"
+          if [ "$count" -lt 100 ]; then
+            echo "::error::Expected 100+ tests but only $count passed"
+            exit 1
+          fi
