@@ -78,6 +78,8 @@ class TestSrgbToLinear:
     def test_monotonic(self):
         """srgb_to_linear must be monotonically increasing."""
         x = np.linspace(0.0, 1.0, 1000, dtype=np.float32)
+        y = srgb_to_linear(x)
+        assert np.all(np.diff(y) >= 0)
 
     def test_above_one_handled(self):
         """Values > 1.0 (HDR / super-white) should not crash.
@@ -88,8 +90,6 @@ class TestSrgbToLinear:
         result = srgb_to_linear(np.array([1.5], dtype=np.float32))
         assert result[0] > 1.0
         assert np.isfinite(result[0])
-        y = srgb_to_linear(x)
-        assert np.all(np.diff(y) >= 0)
 
 
 # ═══════════════════════════════════════════════════════════════════════
