@@ -34,7 +34,11 @@ class TestCreateCheckerboard:
     def test_custom_colors(self):
         """Custom color1 and color2 should appear in the output."""
         result = create_checkerboard(
-            128, 128, checker_size=64, color1=0.1, color2=0.9,
+            128,
+            128,
+            checker_size=64,
+            color1=0.1,
+            color2=0.9,
         )
         unique = sorted(np.unique(result[:, :, 0]))
         assert unique[0] == pytest.approx(0.1, abs=1e-6)

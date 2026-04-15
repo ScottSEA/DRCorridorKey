@@ -9,7 +9,6 @@ preserve luminance.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from ofx_plugin.core.despill import despill
 

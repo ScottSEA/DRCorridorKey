@@ -8,7 +8,6 @@ must use identical interpolation methods.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from ofx_plugin.core.resize import resize_image, resize_mask
 
@@ -76,7 +75,7 @@ class TestResizeMask:
         result = resize_mask(mask, target_width=128, target_height=128)
         # Interior should be ~1.0, exterior should be ~0.0
         assert result[64, 64] > 0.9  # center of the white region
-        assert result[0, 0] < 0.1    # corner (black region)
+        assert result[0, 0] < 0.1  # corner (black region)
 
     def test_handles_3d_input(self):
         """[H, W, 1] masks should be accepted and returned as [H, W]."""

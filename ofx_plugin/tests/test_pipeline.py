@@ -8,10 +8,9 @@ doesn't validate model accuracy — it validates the plumbing.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
-from ofx_plugin.core.preprocess import preprocess
 from ofx_plugin.core.postprocess import postprocess
+from ofx_plugin.core.preprocess import preprocess
 
 
 def _mock_model(preprocessed: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -53,8 +52,10 @@ class TestEndToEnd:
 
         # Postprocess
         result = postprocess(
-            alpha_raw, fg_raw,
-            original_height=200, original_width=300,
+            alpha_raw,
+            fg_raw,
+            original_height=200,
+            original_width=300,
             generate_comp=True,
         )
 
@@ -72,8 +73,10 @@ class TestEndToEnd:
         model_input = preprocess(image, mask, model_size=32)
         alpha_raw, fg_raw = _mock_model(model_input)
         result = postprocess(
-            alpha_raw, fg_raw,
-            original_height=64, original_width=64,
+            alpha_raw,
+            fg_raw,
+            original_height=64,
+            original_width=64,
         )
 
         assert result["alpha"].dtype == np.float32
@@ -88,8 +91,10 @@ class TestEndToEnd:
         model_input = preprocess(image, mask, model_size=32)
         alpha_raw, fg_raw = _mock_model(model_input)
         result = postprocess(
-            alpha_raw, fg_raw,
-            original_height=64, original_width=64,
+            alpha_raw,
+            fg_raw,
+            original_height=64,
+            original_width=64,
         )
 
         assert np.all(np.isfinite(result["alpha"]))
@@ -105,8 +110,10 @@ class TestEndToEnd:
         model_input = preprocess(image, mask, model_size=64)
         alpha_raw, fg_raw = _mock_model(model_input)
         result = postprocess(
-            alpha_raw, fg_raw,
-            original_height=137, original_width=251,
+            alpha_raw,
+            fg_raw,
+            original_height=137,
+            original_width=251,
             auto_despeckle=False,
         )
 
@@ -119,12 +126,17 @@ class TestEndToEnd:
         mask = np.ones((64, 64), dtype=np.float32)
 
         model_input = preprocess(
-            image, mask, model_size=32, input_is_linear=True,
+            image,
+            mask,
+            model_size=32,
+            input_is_linear=True,
         )
         alpha_raw, fg_raw = _mock_model(model_input)
         result = postprocess(
-            alpha_raw, fg_raw,
-            original_height=64, original_width=64,
+            alpha_raw,
+            fg_raw,
+            original_height=64,
+            original_width=64,
             auto_despeckle=False,
         )
 

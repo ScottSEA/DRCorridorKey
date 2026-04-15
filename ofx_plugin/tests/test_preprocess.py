@@ -64,11 +64,15 @@ class TestPreprocess:
         result_linear = preprocess(img, mask, model_size=32, input_is_linear=True)
         result_srgb = preprocess(
             np.full((32, 32, 3), 0.5, dtype=np.float32),
-            mask, model_size=32, input_is_linear=False,
+            mask,
+            model_size=32,
+            input_is_linear=False,
         )
         # Both should produce similar normalised values
         np.testing.assert_allclose(
-            result_linear[:, :, :3], result_srgb[:, :, :3], atol=0.05,
+            result_linear[:, :, :3],
+            result_srgb[:, :, :3],
+            atol=0.05,
         )
 
     def test_srgb_input_not_converted(self):

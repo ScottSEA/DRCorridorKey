@@ -47,7 +47,8 @@ def clean_matte(
 
     # Find connected components
     num_labels, labels, stats, _centroids = cv2.connectedComponentsWithStats(
-        mask_8u, connectivity=8,
+        mask_8u,
+        connectivity=8,
     )
 
     # Build a mask keeping only components above the area threshold.
@@ -61,7 +62,8 @@ def clean_matte(
     if dilation > 0:
         kernel_size = int(dilation * 2 + 1)
         kernel = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (kernel_size, kernel_size),
+            cv2.MORPH_ELLIPSE,
+            (kernel_size, kernel_size),
         )
         cleaned = cv2.dilate(cleaned, kernel)
 

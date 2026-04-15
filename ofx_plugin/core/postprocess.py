@@ -19,7 +19,7 @@ from __future__ import annotations
 import numpy as np
 
 from .checkerboard import create_checkerboard
-from .color import linear_to_srgb, srgb_to_linear
+from .color import srgb_to_linear
 from .composite import composite_straight, premultiply
 from .despill import despill as despill_fn
 from .matte import clean_matte
@@ -81,7 +81,8 @@ def postprocess(
 
     # 6. Pack RGBA
     processed = np.concatenate(
-        [fg_premul, alpha_full[:, :, np.newaxis]], axis=-1,
+        [fg_premul, alpha_full[:, :, np.newaxis]],
+        axis=-1,
     ).astype(np.float32)
 
     result: dict[str, np.ndarray] = {

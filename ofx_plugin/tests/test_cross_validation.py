@@ -12,37 +12,44 @@ code with confidence.
 
 from __future__ import annotations
 
-import os
-import sys
-
 import numpy as np
 import pytest
-import torch
-
-_project_root = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..")
-)
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
 
 # Our reference implementations (pure numpy)
-from ofx_plugin.core.color import (
-    linear_to_srgb as ref_linear_to_srgb,
-    srgb_to_linear as ref_srgb_to_linear,
-)
-from ofx_plugin.core.composite import (
-    composite_straight as ref_composite_straight,
-    premultiply as ref_premultiply,
-)
+from ofx_plugin.core.color import linear_to_srgb as ref_linear_to_srgb
+from ofx_plugin.core.color import srgb_to_linear as ref_srgb_to_linear
+from ofx_plugin.core.composite import composite_straight as ref_composite_straight
+from ofx_plugin.core.composite import premultiply as ref_premultiply
 from ofx_plugin.core.despill import despill as ref_despill
 
-# Upstream implementations (torch + numpy)
-from CorridorKeyModule.core.color_utils import (
-    composite_straight as upstream_composite_straight,
-    despill_opencv as upstream_despill,
-    linear_to_srgb as upstream_linear_to_srgb,
-    premultiply as upstream_premultiply,
-    srgb_to_linear as upstream_srgb_to_linear,
+# Upstream implementations require timm + torchvision — skip the entire
+# module if they're not available (e.g. CI with minimal torch install).
+try:
+    import torch
+
+    from CorridorKeyModule.core.color_utils import (
+        composite_straight as upstream_composite_straight,
+    )
+    from CorridorKeyModule.core.color_utils import (
+        despill_opencv as upstream_despill,
+    )
+    from CorridorKeyModule.core.color_utils import (
+        linear_to_srgb as upstream_linear_to_srgb,
+    )
+    from CorridorKeyModule.core.color_utils import (
+        premultiply as upstream_premultiply,
+    )
+    from CorridorKeyModule.core.color_utils import (
+        srgb_to_linear as upstream_srgb_to_linear,
+    )
+
+    _HAS_UPSTREAM = True
+except ImportError:
+    _HAS_UPSTREAM = False
+
+pytestmark = pytest.mark.skipif(
+    not _HAS_UPSTREAM,
+    reason="CorridorKeyModule not fully importable (missing timm or torchvision)",
 )
 
 

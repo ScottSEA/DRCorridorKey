@@ -26,7 +26,9 @@ def premultiply(fg: np.ndarray, alpha: np.ndarray) -> np.ndarray:
 
 
 def unpremultiply(
-    fg: np.ndarray, alpha: np.ndarray, eps: float = 1e-6,
+    fg: np.ndarray,
+    alpha: np.ndarray,
+    eps: float = 1e-6,
 ) -> np.ndarray:
     """Reverse premultiplication (divide by alpha).
 
@@ -44,7 +46,9 @@ def unpremultiply(
 
 
 def composite_straight(
-    fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray,
+    fg: np.ndarray,
+    bg: np.ndarray,
+    alpha: np.ndarray,
 ) -> np.ndarray:
     """Composite straight-alpha foreground over background.
 
@@ -62,7 +66,9 @@ def composite_straight(
 
 
 def composite_premul(
-    fg: np.ndarray, bg: np.ndarray, alpha: np.ndarray,
+    fg: np.ndarray,
+    bg: np.ndarray,
+    alpha: np.ndarray,
 ) -> np.ndarray:
     """Composite premultiplied foreground over background.
 

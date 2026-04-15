@@ -12,21 +12,12 @@ is found, they are skipped automatically.
 from __future__ import annotations
 
 import os
-import sys
 import tempfile
 
-import numpy as np
 import pytest
 import torch
 
-_project_root = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..")
-)
-if _project_root not in sys.path:
-    sys.path.insert(0, _project_root)
-
 from ofx_plugin.core.export import can_export, export_torchscript
-
 
 # Skip all tests in this module if no checkpoint is available
 pytestmark = pytest.mark.skipif(
@@ -77,7 +68,9 @@ class TestTorchScriptExport:
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = os.path.join(tmpdir, "corridorkey.pt")
             original_model = export_torchscript(
-                output_path, img_size=256, return_original=True,
+                output_path,
+                img_size=256,
+                return_original=True,
             )
             exported_model = torch.jit.load(output_path, map_location="cpu")
 
@@ -88,8 +81,14 @@ class TestTorchScriptExport:
                 export_out = exported_model(dummy_input)
 
             torch.testing.assert_close(
-                orig_out["alpha"], export_out["alpha"], atol=1e-4, rtol=1e-4,
+                orig_out["alpha"],
+                export_out["alpha"],
+                atol=1e-4,
+                rtol=1e-4,
             )
             torch.testing.assert_close(
-                orig_out["fg"], export_out["fg"], atol=1e-4, rtol=1e-4,
+                orig_out["fg"],
+                export_out["fg"],
+                atol=1e-4,
+                rtol=1e-4,
             )

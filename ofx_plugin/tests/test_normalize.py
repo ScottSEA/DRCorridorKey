@@ -11,7 +11,6 @@ import pytest
 
 from ofx_plugin.core.normalize import (
     IMAGENET_MEAN,
-    IMAGENET_STD,
     imagenet_denormalize,
     imagenet_normalize,
 )
@@ -22,11 +21,14 @@ class TestImagenetNormalize:
 
     def test_mean_maps_to_zero(self):
         """An image whose pixels equal the ImageNet mean should normalise to ~0."""
-        img = np.stack([
-            np.full((4, 4), IMAGENET_MEAN[0]),
-            np.full((4, 4), IMAGENET_MEAN[1]),
-            np.full((4, 4), IMAGENET_MEAN[2]),
-        ], axis=-1).astype(np.float32)
+        img = np.stack(
+            [
+                np.full((4, 4), IMAGENET_MEAN[0]),
+                np.full((4, 4), IMAGENET_MEAN[1]),
+                np.full((4, 4), IMAGENET_MEAN[2]),
+            ],
+            axis=-1,
+        ).astype(np.float32)
         result = imagenet_normalize(img)
         np.testing.assert_allclose(result, 0.0, atol=1e-6)
 
@@ -45,8 +47,8 @@ class TestImagenetNormalize:
         # Create an image where each channel has a single known value
         img = np.zeros((1, 1, 3), dtype=np.float32)
         img[0, 0, 0] = 0.485  # R = ImageNet mean R
-        img[0, 0, 1] = 0.0    # G = 0
-        img[0, 0, 2] = 1.0    # B = 1
+        img[0, 0, 1] = 0.0  # G = 0
+        img[0, 0, 2] = 1.0  # B = 1
         result = imagenet_normalize(img)
         # R channel: (0.485 - 0.485) / 0.229 = 0.0
         assert result[0, 0, 0] == pytest.approx(0.0, abs=1e-6)

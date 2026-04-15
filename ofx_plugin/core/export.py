@@ -23,9 +23,7 @@ import torch
 logger = logging.getLogger(__name__)
 
 # Ensure project root is on path for imports
-_project_root = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..")
-)
+_project_root = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", ".."))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
@@ -34,9 +32,13 @@ def _find_checkpoint() -> str | None:
     """Find the CorridorKey .pth checkpoint file.
 
     Returns:
-        Path to the checkpoint, or None if not found.
+        Path to the checkpoint, or None if not found or if the
+        CorridorKeyModule is not importable (missing timm, etc.).
     """
-    from CorridorKeyModule.backend import CHECKPOINT_DIR, TORCH_EXT
+    try:
+        from CorridorKeyModule.backend import CHECKPOINT_DIR, TORCH_EXT
+    except ImportError:
+        return None
 
     matches = glob.glob(os.path.join(str(CHECKPOINT_DIR), f"*{TORCH_EXT}"))
     if len(matches) == 1:
@@ -46,6 +48,9 @@ def _find_checkpoint() -> str | None:
 
 def can_export() -> bool:
     """Check whether model export is possible (checkpoint exists).
+
+    Returns False gracefully if dependencies (timm, etc.) are missing,
+    so that test collection doesn't crash.
 
     Returns:
         True if a checkpoint file is found on disk.
@@ -79,8 +84,7 @@ def export_torchscript(
     ckpt_path = _find_checkpoint()
     if ckpt_path is None:
         raise FileNotFoundError(
-            "No CorridorKey checkpoint found.  Run the installer first "
-            "or download from HuggingFace."
+            "No CorridorKey checkpoint found.  Run the installer first or download from HuggingFace."
         )
 
     logger.info("Loading model from %s", ckpt_path)
@@ -158,16 +162,23 @@ def _resize_pos_embed_if_needed(
         if embed.shape != model_param.shape:
             logger.info(
                 "Resizing pos_embed %s: %s → %s",
-                key, embed.shape, model_param.shape,
+                key,
+                embed.shape,
+                model_param.shape,
             )
             # Reshape for interpolation: [1, N, D] → [1, D, H, W] → interpolate → reshape back
             # This is a simplified version — the full logic is in the upstream backend.py
-            state_dict[key] = torch.nn.functional.interpolate(
-                embed.unsqueeze(0).permute(0, 2, 1).unsqueeze(-1),
-                size=(model_param.shape[1], 1),
-                mode="bicubic",
-                align_corners=False,
-            ).squeeze(-1).permute(0, 2, 1).squeeze(0)
+            state_dict[key] = (
+                torch.nn.functional.interpolate(
+                    embed.unsqueeze(0).permute(0, 2, 1).unsqueeze(-1),
+                    size=(model_param.shape[1], 1),
+                    mode="bicubic",
+                    align_corners=False,
+                )
+                .squeeze(-1)
+                .permute(0, 2, 1)
+                .squeeze(0)
+            )
 
 
 if __name__ == "__main__":

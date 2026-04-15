@@ -19,7 +19,6 @@ import pytest
 
 from ofx_plugin.core.color import linear_to_srgb, srgb_to_linear
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # srgb_to_linear
 # ═══════════════════════════════════════════════════════════════════════

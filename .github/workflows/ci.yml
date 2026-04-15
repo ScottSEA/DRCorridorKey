@@ -79,7 +79,7 @@ jobs:
         run: |
           uv venv --python ${{ matrix.python-version }}
           # --no-config skips pyproject.toml constraints (opencv-python-headless==99999 guard)
-          uv pip install --no-config pytest numpy opencv-python-headless pydantic pydantic-settings
+          uv pip install --no-config pytest numpy opencv-python-headless pydantic pydantic-settings timm
           uv pip install --no-config torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
       - name: Run OFX reference tests

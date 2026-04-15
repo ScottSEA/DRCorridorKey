@@ -16,7 +16,6 @@ original resolution with the correct color space and compositing:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from ofx_plugin.core.postprocess import postprocess
 
@@ -63,12 +62,17 @@ class TestPostprocess:
         alpha = np.ones((16, 16), dtype=np.float32) * 0.7
         fg = np.ones((16, 16, 3), dtype=np.float32) * 0.5
         result = postprocess(
-            alpha, fg, original_height=16, original_width=16,
+            alpha,
+            fg,
+            original_height=16,
+            original_width=16,
             auto_despeckle=False,
         )
         # Alpha channel (ch 3) of processed should ≈ the alpha output
         np.testing.assert_allclose(
-            result["processed"][:, :, 3], result["alpha"], atol=0.05,
+            result["processed"][:, :, 3],
+            result["alpha"],
+            atol=0.05,
         )
 
     def test_comp_generated_when_requested(self):
@@ -76,7 +80,10 @@ class TestPostprocess:
         alpha = np.random.rand(16, 16).astype(np.float32)
         fg = np.random.rand(16, 16, 3).astype(np.float32)
         result = postprocess(
-            alpha, fg, original_height=32, original_width=32,
+            alpha,
+            fg,
+            original_height=32,
+            original_width=32,
             generate_comp=True,
         )
         assert "comp" in result
@@ -87,7 +94,10 @@ class TestPostprocess:
         alpha = np.random.rand(16, 16).astype(np.float32)
         fg = np.random.rand(16, 16, 3).astype(np.float32)
         result = postprocess(
-            alpha, fg, original_height=32, original_width=32,
+            alpha,
+            fg,
+            original_height=32,
+            original_width=32,
             generate_comp=False,
         )
         assert "comp" not in result
@@ -99,8 +109,12 @@ class TestPostprocess:
         fg = np.zeros((16, 16, 3), dtype=np.float32)
         fg[:, :, 1] = 1.0  # all green
         result = postprocess(
-            alpha, fg, original_height=16, original_width=16,
-            despill_strength=0.0, auto_despeckle=False,
+            alpha,
+            fg,
+            original_height=16,
+            original_width=16,
+            despill_strength=0.0,
+            auto_despeckle=False,
         )
         # The green channel of fg output should still be dominant
         assert result["fg"][:, :, 1].mean() > result["fg"][:, :, 0].mean()
@@ -110,10 +124,15 @@ class TestPostprocess:
         alpha = np.zeros((16, 16), dtype=np.float32)
         fg = np.ones((16, 16, 3), dtype=np.float32)
         result = postprocess(
-            alpha, fg, original_height=16, original_width=16,
+            alpha,
+            fg,
+            original_height=16,
+            original_width=16,
             auto_despeckle=False,
         )
         # Premultiplied: fg * alpha = 0
         np.testing.assert_allclose(
-            result["processed"][:, :, :3], 0.0, atol=0.01,
+            result["processed"][:, :, :3],
+            0.0,
+            atol=0.01,
         )
