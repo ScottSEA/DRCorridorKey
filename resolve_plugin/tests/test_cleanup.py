@@ -6,8 +6,6 @@ import os
 import sys
 import time
 
-import pytest
-
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
@@ -29,7 +27,7 @@ class TestIsRequestDir:
 
     def test_wrong_length(self):
         """Strings not exactly 12 chars should be rejected."""
-        assert _is_request_dir("a1b2c3") is False       # too short
+        assert _is_request_dir("a1b2c3") is False  # too short
         assert _is_request_dir("a1b2c3d4e5f6a7") is False  # too long
         assert _is_request_dir("") is False
 

@@ -104,10 +104,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         import uvicorn
     except ImportError:
-        logger.error(
-            "uvicorn is not installed.  Install it with:\n"
-            "  uv pip install uvicorn[standard]"
-        )
+        logger.error("uvicorn is not installed.  Install it with:\n  uv pip install uvicorn[standard]")
         sys.exit(1)
 
     # CRITICAL: workers=1 — the model MUST only load once per process.

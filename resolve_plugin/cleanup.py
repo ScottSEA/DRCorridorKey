@@ -113,7 +113,9 @@ def purge_old_outputs(
     if removed > 0:
         logger.info(
             "Cleaned up %d old request dir(s) from %s (older than %.0fh)",
-            removed, temp_dir, max_age_hours,
+            removed,
+            temp_dir,
+            max_age_hours,
         )
 
     return removed

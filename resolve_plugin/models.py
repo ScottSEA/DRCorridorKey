@@ -14,7 +14,6 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-
 # ── Inference Request ────────────────────────────────────────────────────
 
 
@@ -64,10 +63,7 @@ class InferRequest(BaseModel):
     # ── Output control ───────────────────────────────────────────────────
     output_dir: Optional[str] = Field(
         default=None,
-        description=(
-            "Directory to write output files into.  Defaults to the "
-            "service's temp directory."
-        ),
+        description=("Directory to write output files into.  Defaults to the service's temp directory."),
     )
 
 
@@ -111,10 +107,10 @@ class InferResponse(BaseModel):
 class ModelState(str, Enum):
     """Lifecycle states for the inference model."""
 
-    COLD = "cold"          # Not loaded, never loaded
-    LOADING = "loading"    # Currently loading (checkpoint download / compile)
-    READY = "ready"        # Loaded and ready to infer
-    FAILED = "failed"      # Load attempted but failed
+    COLD = "cold"  # Not loaded, never loaded
+    LOADING = "loading"  # Currently loading (checkpoint download / compile)
+    READY = "ready"  # Loaded and ready to infer
+    FAILED = "failed"  # Load attempted but failed
 
 
 class HealthResponse(BaseModel):

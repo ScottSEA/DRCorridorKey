@@ -6,6 +6,7 @@ import os
 import sys
 
 import pytest
+from pydantic import ValidationError
 
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
@@ -47,22 +48,16 @@ class TestInferRequest:
 
     def test_despill_range_validation(self):
         """despill_strength must be in [0, 1]."""
-        InferRequest(
-            image_path="/a", alpha_hint_path="/b", despill_strength=0.5
-        )
-        with pytest.raises(Exception):
-            InferRequest(
-                image_path="/a", alpha_hint_path="/b", despill_strength=1.5
-            )
-        with pytest.raises(Exception):
-            InferRequest(
-                image_path="/a", alpha_hint_path="/b", despill_strength=-0.1
-            )
+        InferRequest(image_path="/a", alpha_hint_path="/b", despill_strength=0.5)
+        with pytest.raises(ValidationError):
+            InferRequest(image_path="/a", alpha_hint_path="/b", despill_strength=1.5)
+        with pytest.raises(ValidationError):
+            InferRequest(image_path="/a", alpha_hint_path="/b", despill_strength=-0.1)
 
     def test_despeckle_size_non_negative(self):
         """despeckle_size must be >= 0."""
         InferRequest(image_path="/a", alpha_hint_path="/b", despeckle_size=0)
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             InferRequest(image_path="/a", alpha_hint_path="/b", despeckle_size=-1)
 
 

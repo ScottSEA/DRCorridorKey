@@ -50,6 +50,7 @@ import uuid
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from .cleanup import purge_old_outputs
 from .config import ServiceSettings, get_settings
 from .engine_manager import EngineManager
 from .models import (
@@ -60,9 +61,7 @@ from .models import (
     HealthResponse,
     InferRequest,
     InferResponse,
-    ModelState,
 )
-from .cleanup import purge_old_outputs
 from .output_writer import write_inference_outputs
 from .path_security import validate_input_path, validate_output_dir
 
@@ -126,8 +125,10 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
         elapsed = _time.monotonic() - t0
         logger.info(
             "%s %s → %d (%.3fs)",
-            request.method, request.url.path,
-            response.status_code, elapsed,
+            request.method,
+            request.url.path,
+            response.status_code,
+            elapsed,
         )
         return response
 
@@ -197,7 +198,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             engine.warmup()
             return {"status": "ready"}
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @app.post(
         "/infer",
@@ -228,45 +229,25 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             image_path = validate_input_path(req.image_path, settings)
             alpha_path = validate_input_path(req.alpha_hint_path, settings)
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         # Determine output directory: request-specified or temp subdir
         if req.output_dir:
             try:
                 out_dir = validate_output_dir(req.output_dir, settings)
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         else:
             # Create a unique subdirectory per request to avoid collisions
             out_dir = os.path.join(settings.temp_dir, uuid.uuid4().hex[:12])
             os.makedirs(out_dir, exist_ok=True)
 
         # ── 2. Resolve parameters (request → config defaults) ────────
-        despill = (
-            req.despill_strength
-            if req.despill_strength is not None
-            else settings.default_despill_strength
-        )
-        auto_ds = (
-            req.auto_despeckle
-            if req.auto_despeckle is not None
-            else settings.default_auto_despeckle
-        )
-        ds_size = (
-            req.despeckle_size
-            if req.despeckle_size is not None
-            else settings.default_despeckle_size
-        )
-        refiner = (
-            req.refiner_scale
-            if req.refiner_scale is not None
-            else settings.default_refiner_scale
-        )
-        is_linear = (
-            req.input_is_linear
-            if req.input_is_linear is not None
-            else settings.default_input_is_linear
-        )
+        despill = req.despill_strength if req.despill_strength is not None else settings.default_despill_strength
+        auto_ds = req.auto_despeckle if req.auto_despeckle is not None else settings.default_auto_despeckle
+        ds_size = req.despeckle_size if req.despeckle_size is not None else settings.default_despeckle_size
+        refiner = req.refiner_scale if req.refiner_scale is not None else settings.default_refiner_scale
+        is_linear = req.input_is_linear if req.input_is_linear is not None else settings.default_input_is_linear
 
         # ── 3. Run inference ─────────────────────────────────────────
         try:
@@ -281,16 +262,16 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             )
         except ValueError as exc:
             # Frame read failures → 400
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except RuntimeError as exc:
             # Model load failures → 500
-            raise HTTPException(status_code=500, detail=str(exc))
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
         # ── 4. Write outputs ─────────────────────────────────────────
         try:
             paths = write_inference_outputs(result, out_dir, settings)
         except IOError as exc:
-            raise HTTPException(status_code=500, detail=f"Output write failed: {exc}")
+            raise HTTPException(status_code=500, detail=f"Output write failed: {exc}") from exc
 
         # ── 5. Return paths ──────────────────────────────────────────
         return InferResponse(
@@ -336,7 +317,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
             try:
                 batch_dir = validate_output_dir(req.output_dir, settings)
             except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         else:
             batch_dir = os.path.join(settings.temp_dir, uuid.uuid4().hex[:12])
             os.makedirs(batch_dir, exist_ok=True)
@@ -365,25 +346,29 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
                 )
                 paths = write_inference_outputs(result, frame_dir, settings)
 
-                results.append(BatchFrameResult(
-                    index=i,
-                    success=True,
-                    fg_path=paths["fg_path"],
-                    alpha_path=paths["alpha_path"],
-                    fg_ppm_path=paths["fg_ppm_path"],
-                    alpha_pgm_path=paths["alpha_pgm_path"],
-                    comp_path=paths.get("comp_path"),
-                ))
+                results.append(
+                    BatchFrameResult(
+                        index=i,
+                        success=True,
+                        fg_path=paths["fg_path"],
+                        alpha_path=paths["alpha_path"],
+                        fg_ppm_path=paths["fg_ppm_path"],
+                        alpha_pgm_path=paths["alpha_pgm_path"],
+                        comp_path=paths.get("comp_path"),
+                    )
+                )
                 succeeded += 1
                 logger.info("Batch frame %d/%d complete", i + 1, len(req.frames))
 
             except Exception as exc:
                 logger.warning("Batch frame %d failed: %s", i, exc)
-                results.append(BatchFrameResult(
-                    index=i,
-                    success=False,
-                    error=str(exc),
-                ))
+                results.append(
+                    BatchFrameResult(
+                        index=i,
+                        success=False,
+                        error=str(exc),
+                    )
+                )
 
         return BatchInferResponse(
             total=len(req.frames),
@@ -395,10 +380,7 @@ def create_app(settings: ServiceSettings | None = None) -> FastAPI:
     @app.post(
         "/shutdown",
         summary="Gracefully shut down the service",
-        description=(
-            "Unloads the model, frees GPU memory, and stops the server. "
-            "Only accessible from localhost."
-        ),
+        description=("Unloads the model, frees GPU memory, and stops the server. Only accessible from localhost."),
     )
     def shutdown() -> dict:
         """Unload the model and signal the server to stop.

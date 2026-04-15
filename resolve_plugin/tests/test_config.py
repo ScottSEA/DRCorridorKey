@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import os
 
-import pytest
-
 # Ensure project root is on sys.path so resolve_plugin can be imported
 import sys
+
+import pytest
+from pydantic import ValidationError
 
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
@@ -41,16 +42,16 @@ class TestServiceSettings:
 
     def test_device_validation_rejects_invalid(self):
         """Invalid device strings should raise a validation error."""
-        with pytest.raises(Exception):  # Pydantic ValidationError
+        with pytest.raises(ValidationError):  # Pydantic ValidationError
             ServiceSettings(device="vulkan")
 
     def test_port_range_validation(self):
         """Port must be in [1024, 65535]."""
-        ServiceSettings(port=1024)   # min
+        ServiceSettings(port=1024)  # min
         ServiceSettings(port=65535)  # max
-        with pytest.raises(Exception):
-            ServiceSettings(port=80)     # below min
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
+            ServiceSettings(port=80)  # below min
+        with pytest.raises(ValidationError):
             ServiceSettings(port=99999)  # above max
 
     def test_env_override(self, monkeypatch):

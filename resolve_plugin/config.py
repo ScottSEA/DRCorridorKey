@@ -39,9 +39,7 @@ class ServiceSettings(BaseSettings):
     # ── Compute ──────────────────────────────────────────────────────────
     device: str = Field(
         default="auto",
-        description=(
-            "Compute device: 'auto' (detect best), 'cuda', 'mps', or 'cpu'."
-        ),
+        description=("Compute device: 'auto' (detect best), 'cuda', 'mps', or 'cpu'."),
     )
     preload_model: bool = Field(
         default=False,
@@ -84,8 +82,8 @@ class ServiceSettings(BaseSettings):
 
     # ── Pydantic configuration ───────────────────────────────────────────
     model_config = {
-        "env_prefix": "CK_",          # e.g. CK_PORT=8080
-        "env_file": ".env",           # optional .env in cwd
+        "env_prefix": "CK_",  # e.g. CK_PORT=8080
+        "env_file": ".env",  # optional .env in cwd
         "env_file_encoding": "utf-8",
         "case_sensitive": False,
     }

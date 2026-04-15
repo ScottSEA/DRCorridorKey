@@ -47,10 +47,7 @@ def validate_input_path(raw_path: str, settings: ServiceSettings) -> str:
     if settings.allowed_roots:
         normalised_roots = [_normalise(r) for r in settings.allowed_roots]
         if not any(norm.startswith(root) for root in normalised_roots):
-            raise ValueError(
-                f"Path '{norm}' is outside the allowed roots: "
-                f"{settings.allowed_roots}"
-            )
+            raise ValueError(f"Path '{norm}' is outside the allowed roots: {settings.allowed_roots}")
 
     if not os.path.isfile(norm):
         raise ValueError(f"File does not exist: {norm}")
@@ -79,10 +76,7 @@ def validate_output_dir(raw_path: str, settings: ServiceSettings) -> str:
     if settings.allowed_roots:
         normalised_roots = [_normalise(r) for r in settings.allowed_roots]
         if not any(norm.startswith(root) for root in normalised_roots):
-            raise ValueError(
-                f"Output directory '{norm}' is outside the allowed roots: "
-                f"{settings.allowed_roots}"
-            )
+            raise ValueError(f"Output directory '{norm}' is outside the allowed roots: {settings.allowed_roots}")
 
     os.makedirs(norm, exist_ok=True)
     return norm

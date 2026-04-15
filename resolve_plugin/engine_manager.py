@@ -169,9 +169,9 @@ class EngineManager:
     def is_checkpoint_found(self) -> bool:
         """Check whether a model checkpoint file exists on disk."""
         try:
-            from CorridorKeyModule.backend import CHECKPOINT_DIR, TORCH_EXT
-
             import glob as _glob
+
+            from CorridorKeyModule.backend import CHECKPOINT_DIR, TORCH_EXT
 
             matches = _glob.glob(os.path.join(str(CHECKPOINT_DIR), f"*{TORCH_EXT}"))
             return len(matches) > 0
@@ -232,7 +232,8 @@ class EngineManager:
         # Resize mask to match input dimensions if needed
         if mask.shape[:2] != img.shape[:2]:
             mask = cv2.resize(
-                mask, (img.shape[1], img.shape[0]),
+                mask,
+                (img.shape[1], img.shape[0]),
                 interpolation=cv2.INTER_LINEAR,
             )
 

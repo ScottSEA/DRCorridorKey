@@ -12,7 +12,6 @@ import os
 import sys
 
 import numpy as np
-import pytest
 
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _project_root not in sys.path:
@@ -23,6 +22,7 @@ if _project_root not in sys.path:
 # These are identical to the ones in output_writer.py but avoid importing
 # that module (and its cv2/torch dependency chain).  We test the logic,
 # not the import wiring.
+
 
 def _array_to_ppm_rgb(img_rgb: np.ndarray) -> bytes:
     h, w = img_rgb.shape[:2]
@@ -40,6 +40,7 @@ def _array_to_pgm_gray(img_gray: np.ndarray) -> bytes:
 
 def _atomic_write_bytes(data: bytes, dest_path: str) -> None:
     import uuid
+
     tmp_path = dest_path + f".{uuid.uuid4().hex[:8]}.tmp"
     try:
         with open(tmp_path, "wb") as f:
@@ -59,42 +60,42 @@ class TestPPMEncoding:
         img = np.zeros((2, 3, 3), dtype=np.float32)
         data = _array_to_ppm_rgb(img)
         # Header: "P6\n3 2\n255\n" then 2*3*3 = 18 bytes of pixel data
-        header = data[:len(data) - 2 * 3 * 3]
+        header = data[: len(data) - 2 * 3 * 3]
         assert header == b"P6\n3 2\n255\n"
 
     def test_pixel_values_black(self):
         """All-zero image should produce all-zero pixel bytes."""
         img = np.zeros((1, 1, 3), dtype=np.float32)
         data = _array_to_ppm_rgb(img)
-        pixels = data[data.index(b"\n255\n") + 5:]
+        pixels = data[data.index(b"\n255\n") + 5 :]
         assert pixels == b"\x00\x00\x00"
 
     def test_pixel_values_white(self):
         """All-one image should produce all-255 pixel bytes."""
         img = np.ones((1, 1, 3), dtype=np.float32)
         data = _array_to_ppm_rgb(img)
-        pixels = data[data.index(b"\n255\n") + 5:]
+        pixels = data[data.index(b"\n255\n") + 5 :]
         assert pixels == b"\xff\xff\xff"
 
     def test_pixel_values_mid(self):
         """0.5 should round to 128."""
         img = np.full((1, 1, 3), 0.5, dtype=np.float32)
         data = _array_to_ppm_rgb(img)
-        pixels = data[data.index(b"\n255\n") + 5:]
+        pixels = data[data.index(b"\n255\n") + 5 :]
         assert pixels == bytes([128, 128, 128])
 
     def test_clamping_negative(self):
         """Negative values should be clamped to 0."""
         img = np.full((1, 1, 3), -1.0, dtype=np.float32)
         data = _array_to_ppm_rgb(img)
-        pixels = data[data.index(b"\n255\n") + 5:]
+        pixels = data[data.index(b"\n255\n") + 5 :]
         assert pixels == b"\x00\x00\x00"
 
     def test_clamping_above_one(self):
         """Values > 1.0 should be clamped to 255."""
         img = np.full((1, 1, 3), 2.5, dtype=np.float32)
         data = _array_to_ppm_rgb(img)
-        pixels = data[data.index(b"\n255\n") + 5:]
+        pixels = data[data.index(b"\n255\n") + 5 :]
         assert pixels == b"\xff\xff\xff"
 
     def test_dimensions_in_header(self):
@@ -122,21 +123,21 @@ class TestPGMEncoding:
         """PGM header should follow the P5 spec exactly."""
         img = np.zeros((2, 3), dtype=np.float32)
         data = _array_to_pgm_gray(img)
-        header = data[:len(data) - 2 * 3]
+        header = data[: len(data) - 2 * 3]
         assert header == b"P5\n3 2\n255\n"
 
     def test_pixel_values_white(self):
         """All-one mask should produce all-255 bytes."""
         img = np.ones((1, 1), dtype=np.float32)
         data = _array_to_pgm_gray(img)
-        pixels = data[data.index(b"\n255\n") + 5:]
+        pixels = data[data.index(b"\n255\n") + 5 :]
         assert pixels == b"\xff"
 
     def test_pixel_values_black(self):
         """All-zero mask should produce all-zero bytes."""
         img = np.zeros((1, 1), dtype=np.float32)
         data = _array_to_pgm_gray(img)
-        pixels = data[data.index(b"\n255\n") + 5:]
+        pixels = data[data.index(b"\n255\n") + 5 :]
         assert pixels == b"\x00"
 
     def test_total_size(self):

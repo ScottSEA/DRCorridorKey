@@ -83,6 +83,14 @@ extend-exclude = ["gvm_core/", "VideoMaMaInferenceModule/"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# These files set environment variables (ROCm, OpenEXR) before importing
+# torch/cv2 — the import order is intentional and must not be reordered.
+"resolve_plugin/app.py" = ["E402"]
+"resolve_plugin/engine_manager.py" = ["E402"]
+"resolve_plugin/tests/conftest.py" = ["E402"]
+"resolve_plugin/tests/test_*.py" = ["E402"]
+
 [tool.ruff.format]
 # Third-party code excluded via top-level exclude
 
