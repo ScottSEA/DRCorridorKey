@@ -35,6 +35,7 @@ from backend.frame_io import EXR_WRITE_FLAGS
 
 from .config import ServiceSettings
 from .engine_manager import SingleFrameResult
+from .ppm import array_to_pgm_gray, array_to_ppm_rgb, atomic_write_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -71,69 +72,6 @@ def _atomic_write_image(
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise
-
-
-def _atomic_write_bytes(data: bytes, dest_path: str) -> None:
-    """Write raw bytes to a file atomically via tmp-file + rename.
-
-    Used for PPM/PGM files which are written as raw bytes rather than
-    through OpenCV.
-
-    Args:
-        data: Raw bytes to write.
-        dest_path: Final output path.
-
-    Raises:
-        IOError: If the write or rename fails.
-    """
-    tmp_path = dest_path + f".{uuid.uuid4().hex[:8]}.tmp"
-    try:
-        with open(tmp_path, "wb") as f:
-            f.write(data)
-        os.replace(tmp_path, dest_path)
-    except Exception:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        raise
-
-
-def _array_to_ppm_rgb(img_rgb: np.ndarray) -> bytes:
-    """Convert a float32 RGB [H,W,3] array to PPM P6 bytes.
-
-    PPM P6 format:
-        Header:  ``P6\\nWIDTH HEIGHT\\n255\\n``
-        Body:    width * height * 3 bytes (row-major, top-to-bottom, RGB)
-
-    Args:
-        img_rgb: Float32 array [H, W, 3] in [0, 1] range, RGB order.
-
-    Returns:
-        Complete PPM file as bytes.
-    """
-    h, w = img_rgb.shape[:2]
-    # Clamp to [0, 1] and convert to uint8
-    pixels = (np.clip(img_rgb, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
-    header = f"P6\n{w} {h}\n255\n".encode("ascii")
-    return header + pixels.tobytes()
-
-
-def _array_to_pgm_gray(img_gray: np.ndarray) -> bytes:
-    """Convert a float32 grayscale [H,W] array to PGM P5 bytes.
-
-    PGM P5 format:
-        Header:  ``P5\\nWIDTH HEIGHT\\n255\\n``
-        Body:    width * height bytes (row-major, top-to-bottom)
-
-    Args:
-        img_gray: Float32 array [H, W] in [0, 1] range.
-
-    Returns:
-        Complete PGM file as bytes.
-    """
-    h, w = img_gray.shape[:2]
-    pixels = (np.clip(img_gray, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
-    header = f"P5\n{w} {h}\n255\n".encode("ascii")
-    return header + pixels.tobytes()
 
 
 def write_inference_outputs(
@@ -187,12 +125,12 @@ def write_inference_outputs(
 
     # ── Foreground PPM (8-bit, for the Fusion Fuse) ──────────────────────
     fg_ppm_path = os.path.join(output_dir, "fg.ppm")
-    _atomic_write_bytes(_array_to_ppm_rgb(result.fg), fg_ppm_path)
+    atomic_write_bytes(array_to_ppm_rgb(result.fg), fg_ppm_path)
     paths["fg_ppm_path"] = fg_ppm_path
 
     # ── Alpha PGM (8-bit, for the Fusion Fuse) ──────────────────────────
     alpha_pgm_path = os.path.join(output_dir, "alpha.pgm")
-    _atomic_write_bytes(_array_to_pgm_gray(alpha), alpha_pgm_path)
+    atomic_write_bytes(array_to_pgm_gray(alpha), alpha_pgm_path)
     paths["alpha_pgm_path"] = alpha_pgm_path
 
     # ── Composite PNG (optional preview) ─────────────────────────────────
