@@ -26,16 +26,18 @@ class TestCleanMatte:
 
     def test_small_region_removed(self):
         """A small isolated region should be removed."""
-        mask = np.zeros((100, 100), dtype=np.float32)
-        # Large region
-        mask[10:90, 10:90] = 1.0
-        # Tiny island — 4 pixels (well below threshold of 300)
+        # Use a larger canvas so the small island is far from the big region
+        mask = np.zeros((200, 200), dtype=np.float32)
+        # Large region in the center
+        mask[60:140, 60:140] = 1.0
+        # Tiny island in the far corner — 4 pixels (well below threshold)
+        # Must be far enough away that dilation (radius=15) doesn't reach it
         mask[2:4, 2:4] = 1.0
         result = clean_matte(mask, area_threshold=300)
-        # Small island should be gone
+        # Small island should be gone (far from large region's dilation)
         assert result[3, 3] < 0.1
         # Large region should survive
-        assert result[50, 50] > 0.5
+        assert result[100, 100] > 0.5
 
     def test_empty_mask_stays_empty(self):
         """An all-zero mask should remain all-zero."""
