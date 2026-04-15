@@ -50,6 +50,22 @@ class TestValidateInputPath:
         with pytest.raises(ValueError, match="outside the allowed roots"):
             validate_input_path(str(f), settings)
 
+    def test_allowlist_rejects_sibling_prefix(self, tmp_path):
+        """A sibling directory sharing a prefix must NOT pass the allowlist.
+
+        If allowed root is /data/job1, then /data/job1_backup/frame.exr
+        must be rejected — it's a different directory, not a child.
+        """
+        allowed = tmp_path / "job1"
+        allowed.mkdir()
+        sibling = tmp_path / "job1_backup"
+        sibling.mkdir()
+        f = sibling / "frame.exr"
+        f.write_text("fake")
+        settings = ServiceSettings(allowed_roots=[str(allowed)])
+        with pytest.raises(ValueError, match="outside the allowed roots"):
+            validate_input_path(str(f), settings)
+
     def test_normalises_path(self, tmp_path):
         """Paths with .. and redundant separators should be normalised."""
         subdir = tmp_path / "a" / "b"

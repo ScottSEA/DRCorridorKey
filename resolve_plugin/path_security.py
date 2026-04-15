@@ -43,10 +43,15 @@ def validate_input_path(raw_path: str, settings: ServiceSettings) -> str:
     """
     norm = _normalise(raw_path)
 
-    # Allowlist check — only when the operator configured roots
+    # Allowlist check — only when the operator configured roots.
+    # We append os.sep to each root before comparing to prevent prefix
+    # sibling bypass: e.g. "C:\shots\job1_backup" must NOT match root
+    # "C:\shots\job1".  With the trailing separator it becomes
+    # "C:\shots\job1\" vs "C:\shots\job1_backup\" — no match.
     if settings.allowed_roots:
-        normalised_roots = [_normalise(r) for r in settings.allowed_roots]
-        if not any(norm.startswith(root) for root in normalised_roots):
+        normalised_roots = [_normalise(r) + os.sep for r in settings.allowed_roots]
+        norm_with_sep = norm + os.sep  # so the root itself also matches
+        if not any(norm_with_sep.startswith(root) for root in normalised_roots):
             raise ValueError(f"Path '{norm}' is outside the allowed roots: {settings.allowed_roots}")
 
     if not os.path.isfile(norm):
@@ -72,10 +77,11 @@ def validate_output_dir(raw_path: str, settings: ServiceSettings) -> str:
     """
     norm = _normalise(raw_path)
 
-    # Allowlist check (same logic as input paths)
+    # Allowlist check (same trailing-separator logic as validate_input_path)
     if settings.allowed_roots:
-        normalised_roots = [_normalise(r) for r in settings.allowed_roots]
-        if not any(norm.startswith(root) for root in normalised_roots):
+        normalised_roots = [_normalise(r) + os.sep for r in settings.allowed_roots]
+        norm_with_sep = norm + os.sep
+        if not any(norm_with_sep.startswith(root) for root in normalised_roots):
             raise ValueError(f"Output directory '{norm}' is outside the allowed roots: {settings.allowed_roots}")
 
     os.makedirs(norm, exist_ok=True)
