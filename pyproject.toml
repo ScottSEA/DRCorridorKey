@@ -55,6 +55,11 @@ rocm = [
     "torchvision==0.23.0",
     "pytorch-triton-rocm==3.4.0 ; platform_machine == 'x86_64' and sys_platform == 'linux'",
 ]
+resolve = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic-settings>=2.0",
+]
 
 [dependency-groups]
 dev = ["pytest", "pytest-cov", "ruff", "hypothesis"]
@@ -77,6 +82,14 @@ extend-exclude = ["gvm_core/", "VideoMaMaInferenceModule/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# These files set environment variables (ROCm, OpenEXR) before importing
+# torch/cv2 — the import order is intentional and must not be reordered.
+"resolve_plugin/app.py" = ["E402"]
+"resolve_plugin/engine_manager.py" = ["E402"]
+"resolve_plugin/tests/conftest.py" = ["E402"]
+"resolve_plugin/tests/test_*.py" = ["E402"]
 
 [tool.ruff.format]
 # Third-party code excluded via top-level exclude

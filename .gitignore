@@ -37,6 +37,10 @@ CorridorKey_remote.bat
 *.bin
 *.onnx
 
+# Resolve plugin temp interchange files
+*.ppm
+*.pgm
+
 # Checkpoint Directories
 CorridorKeyModule/checkpoints/*
 !CorridorKeyModule/checkpoints/.gitkeep
